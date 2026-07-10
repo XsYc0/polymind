@@ -1,0 +1,19 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/telemetry" },
+    { "path": "packages/config" },
+    { "path": "packages/provider-sdk" },
+    { "path": "integrations/mock-provider" },
+    { "path": "integrations/ollama" },
+    { "path": "integrations/openai-compatible" },
+    { "path": "packages/model-registry" },
+    { "path": "packages/router" },
+    { "path": "packages/persistence" },
+    { "path": "packages/test-utils" },
+    { "path": "packages/execution-engine" },
+    { "path": "apps/gateway" },
+    { "path": "apps/cli" }
+  ]
+}

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+.turbo/
+.env
+*.db
+*.db-shm
+*.db-wal
+.polymind/
+tmp/
+logs/

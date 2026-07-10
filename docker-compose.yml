@@ -1,0 +1,23 @@
+services:
+  polymind:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      POLYMIND_CONFIG: /app/polymind.example.yaml
+      POLYMIND_DATA_DIR: /data
+    volumes:
+      - polymind-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+volumes:
+  polymind-data:
