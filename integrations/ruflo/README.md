@@ -2,12 +2,10 @@
 
 PolyMind Task 1 does not integrate Ruflo directly. This directory reserves a future optional orchestration boundary.
 
-Required before implementation:
+Upstream inspected on 2026-07-10:
 
-- Inspect upstream repository URL
-- Record license
-- Record reviewed commit or tag
-- Identify public workflow/orchestration APIs
-- Attribute any copied material if license permits it
+- Repository: `https://github.com/ruvnet/ruflo`
+- License shown by GitHub: MIT
+- Latest release shown by GitHub at review time: `v3.25.6`
 
 Current decision: expose future orchestration as execution modes over the PolyMind execution engine.

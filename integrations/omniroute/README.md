@@ -2,12 +2,10 @@
 
 PolyMind Task 1 does not integrate OmniRoute directly. This directory reserves a future optional adapter boundary.
 
-Required before implementation:
+Upstream inspected on 2026-07-10:
 
-- Inspect upstream repository URL
-- Record license
-- Record reviewed commit or tag
-- Identify public extension points
-- Attribute any copied material if license permits it
+- Repository: `https://github.com/diegosouzapw/OmniRoute`
+- License shown by GitHub: MIT
+- Latest release shown by GitHub at review time: `v3.8.46`
 
 Current decision: adapt concepts through PolyMind-owned contracts; do not make OmniRoute a core dependency.
