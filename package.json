@@ -27,7 +27,7 @@
     "audit:deps": "pnpm audit --audit-level moderate"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.10.1",
     "@vitest/coverage-v8": "^4.0.14",
     "eslint": "^9.39.1",
