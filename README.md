@@ -1,5 +1,7 @@
 # PolyMind
 
+[![CI](https://github.com/XsYc0/polymind/actions/workflows/ci.yml/badge.svg)](https://github.com/XsYc0/polymind/actions/workflows/ci.yml)
+
 One adaptive AI endpoint powered by every model you own.
 
 PolyMind is a self-hostable OpenAI-compatible gateway that routes `polymind/auto` requests across configured cloud, local, and self-hosted model endpoints. Task 1 implements the engineering foundation and a verified single-model-plus-fallback execution slice.
