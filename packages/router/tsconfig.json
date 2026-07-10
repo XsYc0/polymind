@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "composite": true, "rootDir": "src", "outDir": "dist" },
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../model-registry" },
+    { "path": "../provider-sdk" },
+    { "path": "../telemetry" }
+  ],
+  "include": ["src/**/*.ts"]
+}

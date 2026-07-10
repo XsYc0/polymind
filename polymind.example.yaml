@@ -1,0 +1,75 @@
+server:
+  host: "127.0.0.1"
+  port: 8080
+  bodyLimitBytes: 1048576
+  requestTimeoutMs: 30000
+logging:
+  level: "info"
+storage:
+  sqlitePath: ".polymind/polymind.db"
+  storeRequestContent: false
+security:
+  allowPrivateEndpoints: true
+routing:
+  defaultStrategy: "balanced"
+  maxAttempts: 3
+  balancedWeights:
+    quality: 0.45
+    cost: 0.2
+    latency: 0.2
+    health: 0.1
+    localPreference: 0.05
+providers:
+  - id: "mock-primary"
+    displayName: "Mock Primary"
+    type: "mock"
+    enabled: true
+    health:
+      enabled: true
+      timeoutMs: 1000
+    metadata:
+      fixture: "default"
+  - id: "ollama-local"
+    displayName: "Ollama Local"
+    type: "ollama"
+    baseUrl: "http://127.0.0.1:11434"
+    enabled: false
+    health:
+      enabled: true
+      timeoutMs: 1500
+  - id: "openai-compatible-example"
+    displayName: "OpenAI-Compatible Example"
+    type: "openai-compatible"
+    baseUrl: "https://api.example.invalid/v1"
+    enabled: false
+    secretRef: "env:OPENAI_COMPATIBLE_API_KEY"
+    health:
+      enabled: true
+      timeoutMs: 1500
+models:
+  - id: "mock/good"
+    providerId: "mock-primary"
+    upstreamModel: "mock-good"
+    displayName: "Mock Good"
+    enabled: true
+    capabilities: ["chat", "structured-output", "tool-use"]
+    contextWindow: 8192
+    maximumOutputTokens: 1024
+    inputCostPerMillionTokens: 0
+    outputCostPerMillionTokens: 0
+    relativeQuality: 0.72
+    relativeSpeed: 0.9
+    privacyClass: "public"
+    tags: ["default", "test"]
+  - id: "local/llama3.2"
+    providerId: "ollama-local"
+    upstreamModel: "llama3.2"
+    displayName: "Ollama llama3.2"
+    enabled: true
+    capabilities: ["chat", "coding"]
+    contextWindow: 8192
+    maximumOutputTokens: 2048
+    relativeQuality: 0.65
+    relativeSpeed: 0.55
+    privacyClass: "local"
+    tags: ["local", "ollama"]

@@ -1,0 +1,19 @@
+{
+  "name": "@polymind/execution-engine",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@polymind/contracts": "workspace:*",
+    "@polymind/model-registry": "workspace:*",
+    "@polymind/persistence": "workspace:*",
+    "@polymind/provider-sdk": "workspace:*",
+    "@polymind/router": "workspace:*",
+    "@polymind/telemetry": "workspace:*"
+  }
+}
