@@ -1,0 +1,34 @@
+{
+  "name": "@polymind/gateway",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./app": "./dist/app.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.1.0",
+    "@polymind/config": "workspace:*",
+    "@polymind/contracts": "workspace:*",
+    "@polymind/execution-engine": "workspace:*",
+    "@polymind/model-registry": "workspace:*",
+    "@polymind/mock-provider": "workspace:*",
+    "@polymind/ollama": "workspace:*",
+    "@polymind/openai-compatible": "workspace:*",
+    "@polymind/persistence": "workspace:*",
+    "@polymind/provider-sdk": "workspace:*",
+    "@polymind/router": "workspace:*",
+    "@polymind/telemetry": "workspace:*",
+    "fastify": "^5.6.2",
+    "tsx": "^4.21.0",
+    "zod": "^4.1.13"
+  }
+}

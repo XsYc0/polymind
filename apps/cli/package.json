@@ -1,0 +1,26 @@
+{
+  "name": "@polymind/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "polymind": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "polymind": "tsx src/index.ts",
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@polymind/config": "workspace:*",
+    "@polymind/gateway": "workspace:*",
+    "@polymind/model-registry": "workspace:*",
+    "@polymind/mock-provider": "workspace:*",
+    "@polymind/ollama": "workspace:*",
+    "@polymind/openai-compatible": "workspace:*",
+    "@polymind/provider-sdk": "workspace:*",
+    "commander": "^14.0.2",
+    "tsx": "^4.21.0"
+  }
+}

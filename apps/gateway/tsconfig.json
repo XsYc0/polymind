@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "composite": true, "rootDir": "src", "outDir": "dist" },
+  "references": [
+    { "path": "../../packages/config" },
+    { "path": "../../packages/contracts" },
+    { "path": "../../packages/execution-engine" },
+    { "path": "../../packages/model-registry" },
+    { "path": "../../integrations/mock-provider" },
+    { "path": "../../integrations/ollama" },
+    { "path": "../../integrations/openai-compatible" },
+    { "path": "../../packages/persistence" },
+    { "path": "../../packages/provider-sdk" },
+    { "path": "../../packages/router" },
+    { "path": "../../packages/telemetry" }
+  ],
+  "include": ["src/**/*.ts"]
+}

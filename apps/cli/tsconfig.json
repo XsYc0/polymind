@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "composite": true, "rootDir": "src", "outDir": "dist" },
+  "references": [
+    { "path": "../../packages/config" },
+    { "path": "../gateway" },
+    { "path": "../../packages/model-registry" },
+    { "path": "../../packages/provider-sdk" }
+  ],
+  "include": ["src/**/*.ts"]
+}
