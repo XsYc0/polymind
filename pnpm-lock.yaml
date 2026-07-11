@@ -67,6 +67,9 @@ importers:
       "@fastify/cors":
         specifier: ^11.1.0
         version: 11.3.0
+      "@polymind/cloud-providers":
+        specifier: workspace:*
+        version: link:../../integrations/cloud-providers
       "@polymind/config":
         specifier: workspace:*
         version: link:../../packages/config
@@ -109,6 +112,19 @@ importers:
       zod:
         specifier: ^4.1.13
         version: 4.4.3
+
+  integrations/cloud-providers:
+    dependencies:
+      "@polymind/contracts":
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      "@polymind/provider-sdk":
+        specifier: workspace:*
+        version: link:../../packages/provider-sdk
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   integrations/mock-provider:
     dependencies:

@@ -25,12 +25,37 @@ export class ModelRegistry {
     this.providers.set(provider.id, provider);
   }
 
+  upsertProvider(provider: ProviderDefinition): void {
+    if (this.models.has(provider.id)) throw new Error(`Duplicate id: ${provider.id}`);
+    this.providers.set(provider.id, provider);
+  }
+
   registerModel(model: ModelDefinition): void {
     if (this.models.has(model.id) || this.providers.has(model.id))
       throw new Error(`Duplicate id: ${model.id}`);
     if (!this.providers.has(model.providerId))
       throw new Error(`Model ${model.id} references unknown provider ${model.providerId}`);
     this.models.set(model.id, model);
+  }
+
+  upsertModel(model: ModelDefinition): void {
+    if (this.providers.has(model.id)) throw new Error(`Duplicate id: ${model.id}`);
+    if (!this.providers.has(model.providerId))
+      throw new Error(`Model ${model.id} references unknown provider ${model.providerId}`);
+    this.models.set(model.id, model);
+  }
+
+  deleteProvider(providerId: string, cascade = false): void {
+    const referencedModels = [...this.models.values()].filter(
+      (model) => model.providerId === providerId
+    );
+    if (referencedModels.length > 0 && !cascade) {
+      throw new Error(
+        `Provider ${providerId} is referenced by models: ${referencedModels.map((model) => model.id).join(", ")}`
+      );
+    }
+    for (const model of referencedModels) this.models.delete(model.id);
+    this.providers.delete(providerId);
   }
 
   setProviderEnabled(providerId: string, enabled: boolean): void {

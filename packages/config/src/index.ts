@@ -68,6 +68,42 @@ export const polymindConfigSchema = z.object({
         localPreference: 0.05
       }
     }),
+  integrations: z
+    .object({
+      omniroute: z
+        .object({
+          enabled: z.boolean().default(false),
+          mode: z.enum(["external"]).default("external"),
+          baseUrl: z.string().url().default("http://127.0.0.1:20128/v1"),
+          secretRef: z.string().min(1).optional(),
+          routingMode: z
+            .enum(["native-only", "omniroute-preferred-with-native-fallback", "omniroute-only"])
+            .default("native-only"),
+          fallbackToNative: z.boolean().default(true),
+          timeoutMs: z.number().int().positive().default(30_000),
+          maxRouteDepth: z.number().int().nonnegative().default(2)
+        })
+        .default({
+          enabled: false,
+          mode: "external",
+          baseUrl: "http://127.0.0.1:20128/v1",
+          routingMode: "native-only",
+          fallbackToNative: true,
+          timeoutMs: 30_000,
+          maxRouteDepth: 2
+        })
+    })
+    .default({
+      omniroute: {
+        enabled: false,
+        mode: "external",
+        baseUrl: "http://127.0.0.1:20128/v1",
+        routingMode: "native-only",
+        fallbackToNative: true,
+        timeoutMs: 30_000,
+        maxRouteDepth: 2
+      }
+    }),
   providers: z.array(providerDefinitionSchema).default([]),
   models: z.array(modelDefinitionSchema).default([])
 });

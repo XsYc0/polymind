@@ -117,6 +117,10 @@ export class ProviderManager {
     });
   }
 
+  unregister(providerId: string): void {
+    this.providers.delete(providerId);
+  }
+
   get(providerId: string): LlmProvider {
     const entry = this.providers.get(providerId);
     if (!entry)
@@ -128,10 +132,20 @@ export class ProviderManager {
     if (!entry.status.enabled || entry.status.state === "disabled") {
       throw new PolyMindError(`Provider disabled: ${providerId}`, "provider_disabled", 409);
     }
+    this.advanceCircuit(entry);
     if (entry.status.circuitBreaker === "open") {
       throw new PolyMindError(
         `Provider circuit open: ${providerId}`,
         "provider_circuit_open",
+        503,
+        "provider_unavailable",
+        true
+      );
+    }
+    if (entry.status.circuitBreaker === "half-open" && entry.status.inFlight > 0) {
+      throw new PolyMindError(
+        `Provider half-open probe already in flight: ${providerId}`,
+        "provider_half_open_probe_limited",
         503,
         "provider_unavailable",
         true
@@ -156,7 +170,10 @@ export class ProviderManager {
   }
 
   statuses(): ProviderRuntimeStatus[] {
-    return [...this.providers.values()].map((entry) => ({ ...entry.status }));
+    return [...this.providers.values()].map((entry) => {
+      this.advanceCircuit(entry);
+      return { ...entry.status };
+    });
   }
 
   status(providerId: string): ProviderRuntimeStatus {
@@ -220,6 +237,8 @@ export class ProviderManager {
     entry.status.health = { ...health, latencyMs: health.latencyMs ?? Date.now() - started };
     entry.status.lastHealthCheckAt = new Date().toISOString();
     entry.status.state = health.healthy ? "ready" : "unhealthy";
+    if (health.healthy) this.recordSuccess(providerId);
+    else this.recordFailure(providerId);
     return entry.status.health;
   }
 
@@ -229,6 +248,7 @@ export class ProviderManager {
     entry.status.lastSuccessAt = new Date().toISOString();
     entry.status.state = "ready";
     entry.status.circuitBreaker = "closed";
+    entry.status.cooldownUntil = undefined;
     pushOutcome(entry, true);
   }
 
@@ -258,6 +278,84 @@ export class ProviderManager {
         404
       );
     return entry;
+  }
+
+  private advanceCircuit(entry: ProviderRuntimeEntry): void {
+    if (entry.status.circuitBreaker !== "open" || !entry.status.cooldownUntil) return;
+    if (Date.parse(entry.status.cooldownUntil) > Date.now()) return;
+    entry.status.circuitBreaker = "half-open";
+    entry.status.state = "degraded";
+  }
+}
+
+export interface ProviderHealthSchedulerStatus {
+  running: boolean;
+  checksStarted: number;
+  checksCompleted: number;
+  lastStartedAt?: string | undefined;
+  lastCompletedAt?: string | undefined;
+  inFlight: string[];
+}
+
+export class ProviderHealthScheduler {
+  private timer: NodeJS.Timeout | undefined;
+  private readonly inFlight = new Set<string>();
+  private checksStarted = 0;
+  private checksCompleted = 0;
+  private lastStartedAt: string | undefined;
+  private lastCompletedAt: string | undefined;
+
+  constructor(
+    private readonly manager: ProviderManager,
+    private readonly intervalMs: number,
+    private readonly jitterMs = 250
+  ) {}
+
+  start(): void {
+    if (this.timer) return;
+    const initialDelay = Math.floor(Math.random() * this.jitterMs);
+    this.timer = setTimeout(() => {
+      void this.tick();
+      this.timer = setInterval(() => void this.tick(), this.intervalMs);
+      this.timer.unref?.();
+    }, initialDelay);
+    this.timer.unref?.();
+  }
+
+  stop(): void {
+    if (!this.timer) return;
+    clearTimeout(this.timer);
+    clearInterval(this.timer);
+    this.timer = undefined;
+  }
+
+  status(): ProviderHealthSchedulerStatus {
+    return {
+      running: Boolean(this.timer),
+      checksStarted: this.checksStarted,
+      checksCompleted: this.checksCompleted,
+      lastStartedAt: this.lastStartedAt,
+      lastCompletedAt: this.lastCompletedAt,
+      inFlight: [...this.inFlight]
+    };
+  }
+
+  async tick(): Promise<void> {
+    const statuses = this.manager.statuses().filter((status) => status.enabled);
+    for (const status of statuses) {
+      if (this.inFlight.has(status.providerId)) continue;
+      this.inFlight.add(status.providerId);
+      this.checksStarted += 1;
+      this.lastStartedAt = new Date().toISOString();
+      void this.manager
+        .healthCheck(status.providerId)
+        .catch(() => undefined)
+        .finally(() => {
+          this.inFlight.delete(status.providerId);
+          this.checksCompleted += 1;
+          this.lastCompletedAt = new Date().toISOString();
+        });
+    }
   }
 }
 

@@ -6,6 +6,7 @@ export default defineConfig({
     alias: {
       "@polymind/config": resolve(__dirname, "packages/config/src/index.ts"),
       "@polymind/contracts": resolve(__dirname, "packages/contracts/src/index.ts"),
+      "@polymind/cloud-providers": resolve(__dirname, "integrations/cloud-providers/src/index.ts"),
       "@polymind/execution-engine": resolve(__dirname, "packages/execution-engine/src/index.ts"),
       "@polymind/gateway/app": resolve(__dirname, "apps/gateway/src/app.ts"),
       "@polymind/model-registry": resolve(__dirname, "packages/model-registry/src/index.ts"),

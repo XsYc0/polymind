@@ -18,6 +18,7 @@
     "@fastify/cors": "^11.1.0",
     "@polymind/config": "workspace:*",
     "@polymind/contracts": "workspace:*",
+    "@polymind/cloud-providers": "workspace:*",
     "@polymind/execution-engine": "workspace:*",
     "@polymind/model-registry": "workspace:*",
     "@polymind/mock-provider": "workspace:*",

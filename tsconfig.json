@@ -8,6 +8,7 @@
     { "path": "integrations/mock-provider" },
     { "path": "integrations/ollama" },
     { "path": "integrations/openai-compatible" },
+    { "path": "integrations/cloud-providers" },
     { "path": "packages/model-registry" },
     { "path": "packages/router" },
     { "path": "packages/persistence" },

@@ -20,6 +20,7 @@ tmp/
 temp/
 logs/
 outputs/
+benchmark-results*.json
 *.zip
 .DS_Store
 Thumbs.db

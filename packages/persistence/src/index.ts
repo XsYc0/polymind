@@ -41,9 +41,17 @@ export interface TraceRecord {
 
 export interface PolyMindRepository {
   saveProviders(providers: ProviderDefinition[]): Promise<void>;
+  saveProvider(provider: ProviderDefinition): Promise<void>;
+  listProviders(): Promise<ProviderDefinition[]>;
+  deleteProvider(providerId: string): Promise<void>;
   saveModels(models: ModelDefinition[]): Promise<void>;
+  saveModel(model: ModelDefinition): Promise<void>;
+  listModels(): Promise<ModelDefinition[]>;
+  deleteModelsByProvider(providerId: string): Promise<void>;
+  auditProviderChange(providerId: string, action: string, details: unknown): Promise<void>;
   saveTrace(trace: TraceRecord): Promise<void>;
   getTrace(traceId: string): Promise<TraceRecord | undefined>;
+  close?(): void;
 }
 
 export class InMemoryRepository implements PolyMindRepository {
@@ -54,15 +62,37 @@ export class InMemoryRepository implements PolyMindRepository {
   async saveProviders(providers: ProviderDefinition[]): Promise<void> {
     for (const provider of providers) this.providers.set(provider.id, provider);
   }
+  async saveProvider(provider: ProviderDefinition): Promise<void> {
+    this.providers.set(provider.id, provider);
+  }
+  async listProviders(): Promise<ProviderDefinition[]> {
+    return [...this.providers.values()];
+  }
+  async deleteProvider(providerId: string): Promise<void> {
+    this.providers.delete(providerId);
+  }
   async saveModels(models: ModelDefinition[]): Promise<void> {
     for (const model of models) this.models.set(model.id, model);
   }
+  async saveModel(model: ModelDefinition): Promise<void> {
+    this.models.set(model.id, model);
+  }
+  async listModels(): Promise<ModelDefinition[]> {
+    return [...this.models.values()];
+  }
+  async deleteModelsByProvider(providerId: string): Promise<void> {
+    for (const model of this.models.values()) {
+      if (model.providerId === providerId) this.models.delete(model.id);
+    }
+  }
+  async auditProviderChange(): Promise<void> {}
   async saveTrace(trace: TraceRecord): Promise<void> {
     this.traces.set(trace.traceId, trace);
   }
   async getTrace(traceId: string): Promise<TraceRecord | undefined> {
     return this.traces.get(traceId);
   }
+  close(): void {}
 }
 
 export class SqliteRepository implements PolyMindRepository {
@@ -79,11 +109,53 @@ export class SqliteRepository implements PolyMindRepository {
     for (const provider of providers) statement.run(provider.id, JSON.stringify(provider));
   }
 
+  async saveProvider(provider: ProviderDefinition): Promise<void> {
+    this.db
+      .prepare("insert or replace into providers(id, json) values (?, ?)")
+      .run(provider.id, JSON.stringify(provider));
+  }
+
+  async listProviders(): Promise<ProviderDefinition[]> {
+    return this.db
+      .prepare("select json from providers order by id")
+      .all()
+      .map((row) => JSON.parse((row as { json: string }).json) as ProviderDefinition);
+  }
+
+  async deleteProvider(providerId: string): Promise<void> {
+    this.db.prepare("delete from providers where id = ?").run(providerId);
+  }
+
   async saveModels(models: ModelDefinition[]): Promise<void> {
     const statement = this.db.prepare(
       "insert or replace into models(id, provider_id, json) values (?, ?, ?)"
     );
     for (const model of models) statement.run(model.id, model.providerId, JSON.stringify(model));
+  }
+
+  async saveModel(model: ModelDefinition): Promise<void> {
+    this.db
+      .prepare("insert or replace into models(id, provider_id, json) values (?, ?, ?)")
+      .run(model.id, model.providerId, JSON.stringify(model));
+  }
+
+  async listModels(): Promise<ModelDefinition[]> {
+    return this.db
+      .prepare("select json from models order by id")
+      .all()
+      .map((row) => JSON.parse((row as { json: string }).json) as ModelDefinition);
+  }
+
+  async deleteModelsByProvider(providerId: string): Promise<void> {
+    this.db.prepare("delete from models where provider_id = ?").run(providerId);
+  }
+
+  async auditProviderChange(providerId: string, action: string, details: unknown): Promise<void> {
+    this.db
+      .prepare(
+        "insert into provider_config_audit(provider_id, action, json, created_at) values (?, ?, ?, ?)"
+      )
+      .run(providerId, action, JSON.stringify(details), new Date().toISOString());
   }
 
   async saveTrace(trace: TraceRecord): Promise<void> {
@@ -108,6 +180,10 @@ export class SqliteRepository implements PolyMindRepository {
     const row = this.db.prepare("select json from traces where trace_id = ?").get(traceId) as
       { json: string } | undefined;
     return row ? (JSON.parse(row.json) as TraceRecord) : undefined;
+  }
+
+  close(): void {
+    this.db.close();
   }
 
   private migrate(): void {
