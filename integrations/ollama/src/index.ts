@@ -20,7 +20,7 @@ export class OllamaProvider implements LlmProvider {
   }
 
   capabilities(): ModelCapability[] {
-    return ["chat", "coding"];
+    return ["chat", "streaming", "coding", "model-listing", "token-usage"];
   }
 
   async listModels(signal?: AbortSignal): Promise<ModelDefinition[]> {
@@ -113,8 +113,76 @@ export class OllamaProvider implements LlmProvider {
   }
 
   async *streamChat(options: ProviderChatOptions): AsyncIterable<ProviderChatChunk> {
-    const result = await this.chat(options);
-    yield { delta: result.content, done: false };
-    yield { delta: "", done: true, usage: result.usage };
+    try {
+      const response = await this.fetchImpl(new URL("/api/chat", this.baseUrl), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: withTimeout(options.timeoutMs, options.signal),
+        body: JSON.stringify({
+          model: options.model.upstreamModel,
+          messages: options.request.messages.map((message) => ({
+            role: message.role,
+            content: message.content
+          })),
+          stream: true,
+          options: {
+            temperature: options.request.temperature,
+            num_predict: options.request.max_tokens ?? options.request.max_completion_tokens
+          }
+        })
+      });
+      if (!response.ok)
+        throw new Error(`Ollama stream failed ${response.status}: ${await response.text()}`);
+      if (!response.body) throw new Error("Ollama stream response had no body");
+      yield { role: "assistant", createdAt: new Date().toISOString() };
+      for await (const line of parseJsonLines(response.body)) {
+        const data = JSON.parse(line) as {
+          message?: { content?: string };
+          done?: boolean;
+          prompt_eval_count?: number;
+          eval_count?: number;
+        };
+        if (data.message?.content) {
+          yield { delta: data.message.content, createdAt: new Date().toISOString() };
+        }
+        if (data.done) {
+          const promptTokens = data.prompt_eval_count ?? 0;
+          const completionTokens = data.eval_count ?? 0;
+          yield {
+            finishReason: "stop",
+            usage: {
+              promptTokens,
+              completionTokens,
+              totalTokens: promptTokens + completionTokens
+            },
+            createdAt: new Date().toISOString()
+          };
+        }
+      }
+    } catch (error) {
+      throw normalizeProviderError(error);
+    }
+  }
+}
+
+async function* parseJsonLines(body: ReadableStream<Uint8Array>): AsyncIterable<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (line.trim()) yield line;
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) yield buffer;
+  } finally {
+    reader.releaseLock();
   }
 }

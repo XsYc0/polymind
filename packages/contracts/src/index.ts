@@ -2,11 +2,15 @@ import { z } from "zod";
 
 export const modelCapabilitySchema = z.enum([
   "chat",
+  "streaming",
   "reasoning",
   "coding",
   "vision",
   "tool-use",
+  "parallel-tool-use",
   "embeddings",
+  "token-usage",
+  "model-listing",
   "long-context",
   "structured-output"
 ]);
@@ -15,7 +19,16 @@ export type ModelCapability = z.infer<typeof modelCapabilitySchema>;
 export const privacyClassSchema = z.enum(["public", "private", "local"]);
 export type PrivacyClass = z.infer<typeof privacyClassSchema>;
 
-export const providerTypeSchema = z.enum(["mock", "ollama", "openai-compatible", "custom"]);
+export const providerTypeSchema = z.enum([
+  "mock",
+  "ollama",
+  "openai-compatible",
+  "openai",
+  "anthropic",
+  "gemini",
+  "deepseek",
+  "custom"
+]);
 export type ProviderType = z.infer<typeof providerTypeSchema>;
 
 export const healthConfigSchema = z
@@ -148,6 +161,44 @@ export interface ChatCompletionResponse {
         estimatedCost?: number | undefined;
         latencyMs: number;
         attempts: number;
+      }
+    | undefined;
+}
+
+export interface ChatCompletionChunk {
+  id: string;
+  object: "chat.completion.chunk";
+  created: number;
+  model: string;
+  choices: Array<{
+    index: number;
+    delta: {
+      role?: "assistant" | undefined;
+      content?: string | undefined;
+      reasoning_content?: string | undefined;
+      tool_calls?: unknown[] | undefined;
+    };
+    finish_reason: "stop" | "length" | "tool_calls" | "content_filter" | null;
+  }>;
+  usage?:
+    | {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+      }
+    | undefined;
+  polymind?:
+    | {
+        traceId: string;
+        requestId: string;
+        selectedVirtualModel: string;
+        providerId: string;
+        modelId: string;
+        upstreamModel: string;
+        strategy: RoutingStrategy;
+        routingReason: string;
+        chunkCount: number;
+        partial: boolean;
       }
     | undefined;
 }

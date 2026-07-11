@@ -57,6 +57,7 @@ export class RoutingEngine {
     const required = new Set<ModelCapability>([
       "chat",
       ...(input.policy.requiredCapabilities ?? []),
+      ...(input.request.stream ? (["streaming"] as ModelCapability[]) : []),
       ...(input.request.tools ? (["tool-use"] as ModelCapability[]) : []),
       ...(input.request.response_format ? (["structured-output"] as ModelCapability[]) : [])
     ]);
@@ -70,7 +71,10 @@ export class RoutingEngine {
     );
     const eligible = input.registry
       .candidates(policy)
-      .filter((model) => input.health.get(model.providerId)?.healthy ?? true)
+      .filter((model) => {
+        const health = input.health.get(model.providerId);
+        return health?.healthy ?? true;
+      })
       .map((model) => ({
         model,
         score: this.score(model, policy, input.health.get(model.providerId))

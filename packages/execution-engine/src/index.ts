@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   ChatCompletionRequest,
+  ChatCompletionChunk,
   ChatCompletionResponse,
   RoutingPolicy,
   TokenUsage
@@ -9,7 +10,7 @@ import { PolyMindError } from "@polymind/contracts";
 import { estimateConfiguredCost, ModelRegistry } from "@polymind/model-registry";
 import type { TraceRecord, PolyMindRepository } from "@polymind/persistence";
 import { safePromptHash } from "@polymind/persistence";
-import type { ProviderManager } from "@polymind/provider-sdk";
+import type { ProviderChatChunk, ProviderManager } from "@polymind/provider-sdk";
 import { normalizeProviderError } from "@polymind/provider-sdk";
 import type { RoutingEngine } from "@polymind/router";
 import type { TelemetrySink } from "@polymind/telemetry";
@@ -21,6 +22,12 @@ export interface ExecutionContext {
   timeoutMs: number;
   storeRequestContent: boolean;
   signal?: AbortSignal;
+}
+
+export interface StreamExecutionResult {
+  traceId: string;
+  requestId: string;
+  chunks: AsyncIterable<ChatCompletionChunk>;
 }
 
 export class ExecutionEngine {
@@ -78,13 +85,15 @@ export class ExecutionEngine {
         })
       );
       try {
-        const result = await provider.chat({
-          request,
-          model: candidate.model,
-          timeoutMs: context.timeoutMs,
-          signal: context.signal,
-          traceId
-        });
+        const result = await this.providers.withRequest(provider.definition.id, (activeProvider) =>
+          activeProvider.chat({
+            request,
+            model: candidate.model,
+            timeoutMs: context.timeoutMs,
+            signal: context.signal,
+            traceId
+          })
+        );
         const latencyMs = Date.now() - attemptStarted;
         attempts.push({
           providerId: provider.definition.id,
@@ -222,6 +231,235 @@ export class ExecutionEngine {
       )
     );
   }
+
+  stream(
+    request: ChatCompletionRequest,
+    policy: RoutingPolicy,
+    context: ExecutionContext
+  ): StreamExecutionResult {
+    const traceId = context.traceId ?? randomUUID();
+    const requestId = context.requestId ?? randomUUID();
+    return {
+      traceId,
+      requestId,
+      chunks: this.streamInternal(request, policy, context, traceId, requestId)
+    };
+  }
+
+  private async *streamInternal(
+    request: ChatCompletionRequest,
+    policy: RoutingPolicy,
+    context: ExecutionContext,
+    traceId: string,
+    requestId: string
+  ): AsyncIterable<ChatCompletionChunk> {
+    const started = Date.now();
+    this.telemetry?.emit(
+      event("request.received", {
+        traceId,
+        requestId,
+        strategy: policy.strategy,
+        metadata: { stream: true }
+      })
+    );
+    const health = await this.providers.healthMap();
+    const decision = this.router.route({
+      request: { ...request, stream: true },
+      policy,
+      registry: this.registry,
+      health,
+      traceId,
+      requestId
+    });
+    const maxAttempts = Math.min(
+      policy.maxAttempts ?? 3,
+      policy.fallback ? decision.candidates.length : 1
+    );
+    const attempts: TraceRecord["attempts"] = [];
+    let lastError: PolyMindError | undefined;
+    for (const candidate of decision.candidates.slice(0, maxAttempts)) {
+      const provider = this.providers.get(candidate.model.providerId);
+      const attemptStarted = Date.now();
+      let emitted = false;
+      let chunkCount = 0;
+      let outputCharacters = 0;
+      let usage: TokenUsage | undefined;
+      let finishReason: ProviderChatChunk["finishReason"] = null;
+      try {
+        const stream = provider.streamChat({
+          request,
+          model: candidate.model,
+          timeoutMs: context.timeoutMs,
+          signal: context.signal,
+          traceId
+        });
+        for await (const providerChunk of stream) {
+          emitted = true;
+          chunkCount += 1;
+          outputCharacters += providerChunk.delta?.length ?? 0;
+          usage = providerChunk.usage ?? usage;
+          finishReason = providerChunk.finishReason ?? finishReason;
+          yield toOpenAIChunk({
+            request,
+            providerChunk,
+            traceId,
+            requestId,
+            candidate,
+            providerId: provider.definition.id,
+            decision,
+            chunkCount,
+            partial: false
+          });
+        }
+        attempts.push({
+          providerId: provider.definition.id,
+          modelId: candidate.model.id,
+          startedAt: new Date(attemptStarted).toISOString(),
+          latencyMs: Date.now() - attemptStarted,
+          success: true
+        });
+        await this.repository.saveTrace({
+          traceId,
+          requestId,
+          createdAt: new Date(started).toISOString(),
+          model: request.model,
+          promptHash: safePromptHash(request),
+          contentStored: false,
+          selectedProviderId: provider.definition.id,
+          selectedModelId: candidate.model.id,
+          strategy: decision.strategy,
+          routingReason: decision.reason,
+          usage,
+          latencyMs: Date.now() - started,
+          attempts,
+          routingDecision: {
+            ...decision,
+            streamMetrics: {
+              chunkCount,
+              outputCharacters,
+              durationMs: Date.now() - started,
+              finishReason
+            }
+          }
+        });
+        return;
+      } catch (error) {
+        const normalized = normalizeProviderError(error);
+        lastError = normalized;
+        attempts.push({
+          providerId: provider.definition.id,
+          modelId: candidate.model.id,
+          startedAt: new Date(attemptStarted).toISOString(),
+          latencyMs: Date.now() - attemptStarted,
+          success: false,
+          failureCategory: normalized.category,
+          errorMessage: normalized.message
+        });
+        if (emitted) {
+          yield toOpenAIChunk({
+            request,
+            providerChunk: { finishReason: null, metadata: { error: normalized.code } },
+            traceId,
+            requestId,
+            candidate,
+            providerId: provider.definition.id,
+            decision,
+            chunkCount: chunkCount + 1,
+            partial: true
+          });
+          await this.repository.saveTrace({
+            traceId,
+            requestId,
+            createdAt: new Date(started).toISOString(),
+            model: request.model,
+            promptHash: safePromptHash(request),
+            contentStored: false,
+            selectedProviderId: provider.definition.id,
+            selectedModelId: candidate.model.id,
+            strategy: decision.strategy,
+            routingReason: "stream failed after partial output",
+            latencyMs: Date.now() - started,
+            attempts,
+            routingDecision: { ...decision, partial: true, streamError: normalized.code }
+          });
+          return;
+        }
+        if (!policy.fallback || !normalized.retryable || normalized.category === "auth") break;
+      }
+    }
+    await this.repository.saveTrace({
+      traceId,
+      requestId,
+      createdAt: new Date(started).toISOString(),
+      model: request.model,
+      promptHash: safePromptHash(request),
+      contentStored: false,
+      latencyMs: Date.now() - started,
+      attempts,
+      routingDecision: decision
+    });
+    throw (
+      lastError ??
+      new PolyMindError(
+        "Streaming execution failed without a provider attempt",
+        "stream_execution_failed",
+        502,
+        "unknown",
+        false
+      )
+    );
+  }
+}
+
+function toOpenAIChunk(input: {
+  request: ChatCompletionRequest;
+  providerChunk: ProviderChatChunk;
+  traceId: string;
+  requestId: string;
+  candidate: import("@polymind/router").RouteCandidate;
+  providerId: string;
+  decision: import("@polymind/router").RouteDecision;
+  chunkCount: number;
+  partial: boolean;
+}): ChatCompletionChunk {
+  const usage = input.providerChunk.usage
+    ? {
+        prompt_tokens: input.providerChunk.usage.promptTokens,
+        completion_tokens: input.providerChunk.usage.completionTokens,
+        total_tokens: input.providerChunk.usage.totalTokens
+      }
+    : undefined;
+  return {
+    id: `chatcmpl-${input.traceId}`,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model: input.request.model,
+    choices: [
+      {
+        index: 0,
+        delta: {
+          role: input.providerChunk.role,
+          content: input.providerChunk.delta,
+          reasoning_content: input.providerChunk.reasoningDelta,
+          tool_calls: input.providerChunk.toolCallDelta
+        },
+        finish_reason: input.providerChunk.finishReason ?? null
+      }
+    ],
+    usage,
+    polymind: {
+      traceId: input.traceId,
+      requestId: input.requestId,
+      selectedVirtualModel: input.request.model,
+      providerId: input.providerId,
+      modelId: input.candidate.model.id,
+      upstreamModel: input.candidate.model.upstreamModel,
+      strategy: input.decision.strategy,
+      routingReason: input.decision.reason,
+      chunkCount: input.chunkCount,
+      partial: input.partial
+    }
+  };
 }
 
 function estimateCost(

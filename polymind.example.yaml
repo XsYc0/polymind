@@ -52,7 +52,7 @@ models:
     upstreamModel: "mock-good"
     displayName: "Mock Good"
     enabled: true
-    capabilities: ["chat", "structured-output", "tool-use"]
+    capabilities: ["chat", "streaming", "structured-output", "tool-use"]
     contextWindow: 8192
     maximumOutputTokens: 1024
     inputCostPerMillionTokens: 0
@@ -66,7 +66,7 @@ models:
     upstreamModel: "llama3.2"
     displayName: "Ollama llama3.2"
     enabled: true
-    capabilities: ["chat", "coding"]
+    capabilities: ["chat", "streaming", "coding"]
     contextWindow: 8192
     maximumOutputTokens: 2048
     relativeQuality: 0.65

@@ -90,7 +90,7 @@ export const defaultConfig: PolyMindConfig = polymindConfigSchema.parse({
       upstreamModel: "mock-good",
       displayName: "Mock Good",
       enabled: true,
-      capabilities: ["chat", "structured-output", "tool-use"],
+      capabilities: ["chat", "streaming", "structured-output", "tool-use"],
       relativeQuality: 0.72,
       relativeSpeed: 0.9,
       privacyClass: "public"

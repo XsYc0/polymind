@@ -17,9 +17,15 @@ import { estimateTokensFromText } from "@polymind/provider-sdk";
 export interface MockProviderScenario {
   latencyMs?: number;
   fail?: boolean;
+  failBeforeFirstChunk?: boolean;
+  failAfterChunks?: number;
   failureCategory?: "auth" | "timeout" | "rate_limit" | "provider_unavailable" | "unknown";
   healthy?: boolean;
   response?: string;
+  streamChunks?: string[];
+  streamDelayMs?: number;
+  emptyStream?: boolean;
+  toolCallStream?: boolean;
   usage?: TokenUsage;
   confidence?: number;
   capabilities?: ModelCapability[];
@@ -33,7 +39,7 @@ export class MockProvider implements LlmProvider {
   ) {}
 
   capabilities(): ModelCapability[] {
-    return this.scenario.capabilities ?? ["chat", "structured-output", "tool-use"];
+    return this.scenario.capabilities ?? ["chat", "streaming", "structured-output", "tool-use"];
   }
 
   async listModels(): Promise<ModelDefinition[]> {
@@ -85,10 +91,58 @@ export class MockProvider implements LlmProvider {
   }
 
   async *streamChat(options: ProviderChatOptions): AsyncIterable<ProviderChatChunk> {
-    const result = await this.chat(options);
-    yield { delta: result.content, done: false };
-    yield { delta: "", done: true, usage: result.usage };
+    if (this.scenario.failBeforeFirstChunk) {
+      throw failure(this.scenario.failureCategory);
+    }
+    const result = await this.chat({ ...options, request: { ...options.request, stream: false } });
+    yield { role: "assistant", createdAt: new Date().toISOString() };
+    if (this.scenario.toolCallStream) {
+      yield {
+        toolCallDelta: [
+          {
+            index: 0,
+            id: "call_mock",
+            type: "function",
+            function: { name: "mock_tool", arguments: '{"value"' }
+          }
+        ],
+        createdAt: new Date().toISOString()
+      };
+      yield {
+        toolCallDelta: [{ index: 0, function: { arguments: ":true}" } }],
+        createdAt: new Date().toISOString()
+      };
+    } else if (!this.scenario.emptyStream) {
+      const chunks = this.scenario.streamChunks ?? splitIntoChunks(result.content);
+      for (const [index, chunk] of chunks.entries()) {
+        await sleep(this.scenario.streamDelayMs ?? 0, options.signal);
+        if (this.scenario.failAfterChunks === index) throw failure(this.scenario.failureCategory);
+        yield { delta: chunk, createdAt: new Date().toISOString() };
+      }
+    }
+    yield {
+      finishReason: result.finishReason,
+      usage: result.usage,
+      createdAt: new Date().toISOString()
+    };
   }
+}
+
+function failure(category: MockProviderScenario["failureCategory"]): PolyMindError {
+  const resolved = category ?? "provider_unavailable";
+  return new PolyMindError(
+    `Mock provider configured failure: ${resolved}`,
+    "mock_failure",
+    resolved === "auth" ? 401 : 502,
+    resolved,
+    resolved !== "auth"
+  );
+}
+
+function splitIntoChunks(value: string): string[] {
+  if (value.length === 0) return [];
+  const words = value.split(/(\s+)/).filter((part) => part.length > 0);
+  return words.length > 0 ? words : [value];
 }
 
 async function sleep(ms: number, signal?: AbortSignal): Promise<void> {

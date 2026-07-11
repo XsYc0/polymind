@@ -56,7 +56,90 @@ export async function buildApp(inputConfig?: PolyMindConfig): Promise<AppComposi
   }));
   app.get("/version", async () => ({ name: "polymind", version: "0.1.0" }));
   app.get("/v1/providers", async () => ({ object: "list", data: registry.listProviders() }));
+  app.get<{ Params: { providerId: string } }>(
+    "/v1/providers/:providerId",
+    async (request, reply) => {
+      const provider = registry.provider(request.params.providerId);
+      if (!provider)
+        return reply
+          .code(404)
+          .send({ error: { message: "Provider not found", code: "provider_not_found" } });
+      return { ...provider, runtime: providers.status(request.params.providerId) };
+    }
+  );
+  app.get<{ Params: { providerId: string } }>(
+    "/v1/providers/:providerId/health",
+    async (request, reply) => {
+      try {
+        return (
+          providers.status(request.params.providerId).health ??
+          (await providers.healthCheck(request.params.providerId))
+        );
+      } catch (error) {
+        const normalized = toApiError(error);
+        return reply
+          .code(normalized.statusCode)
+          .send({ error: { message: normalized.message, code: normalized.code } });
+      }
+    }
+  );
+  app.get<{ Params: { providerId: string } }>(
+    "/v1/providers/:providerId/health/history",
+    async (request) => ({
+      object: "list",
+      data: [providers.status(request.params.providerId)].filter((status) => status.health)
+    })
+  );
+  app.post<{ Params: { providerId: string } }>(
+    "/v1/providers/:providerId/health/check",
+    async (request, reply) => {
+      const denied = requireLocalAdmin(request, reply);
+      if (denied) return denied;
+      try {
+        return await providers.healthCheck(request.params.providerId);
+      } catch (error) {
+        const normalized = toApiError(error);
+        return reply
+          .code(normalized.statusCode)
+          .send({ error: { message: normalized.message, code: normalized.code } });
+      }
+    }
+  );
+  app.post<{ Params: { providerId: string } }>(
+    "/v1/providers/:providerId/enable",
+    async (request, reply) => {
+      const denied = requireLocalAdmin(request, reply);
+      if (denied) return denied;
+      return providers.enable(request.params.providerId);
+    }
+  );
+  app.post<{ Params: { providerId: string } }>(
+    "/v1/providers/:providerId/disable",
+    async (request, reply) => {
+      const denied = requireLocalAdmin(request, reply);
+      if (denied) return denied;
+      return providers.disable(request.params.providerId);
+    }
+  );
+  app.post<{ Params: { providerId: string } }>(
+    "/v1/providers/:providerId/models/refresh",
+    async (request, reply) => {
+      const denied = requireLocalAdmin(request, reply);
+      if (denied) return denied;
+      try {
+        const models = await providers.get(request.params.providerId).listModels();
+        return { object: "list", data: models };
+      } catch (error) {
+        const normalized = toApiError(error);
+        return reply
+          .code(normalized.statusCode)
+          .send({ error: { message: normalized.message, code: normalized.code } });
+      }
+    }
+  );
   app.post("/v1/providers", async (request, reply) => {
+    const denied = requireLocalAdmin(request, reply);
+    if (denied) return denied;
     const parsed = request.body;
     reply.code(501);
     return {
@@ -95,6 +178,40 @@ export async function buildApp(inputConfig?: PolyMindConfig): Promise<AppComposi
   app.post("/v1/chat/completions", async (request, reply) => {
     try {
       const parsed = chatCompletionRequestSchema.parse(request.body);
+      if (parsed.stream) {
+        const abortController = new AbortController();
+        request.raw.on("aborted", () => abortController.abort());
+        const stream = engine.stream(
+          parsed,
+          mergePolicy(config, parsed.polymind as Record<string, unknown> | undefined),
+          {
+            requestId: request.id,
+            timeoutMs: config.server.requestTimeoutMs,
+            storeRequestContent: config.storage.storeRequestContent,
+            signal: abortController.signal
+          }
+        );
+        reply.hijack();
+        reply.raw.writeHead(200, {
+          "content-type": "text/event-stream; charset=utf-8",
+          "cache-control": "no-cache, no-transform",
+          connection: "keep-alive",
+          "x-polymind-trace-id": stream.traceId
+        });
+        let done = false;
+        try {
+          for await (const chunk of stream.chunks) {
+            reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+          }
+        } finally {
+          if (!done) {
+            done = true;
+            reply.raw.write("data: [DONE]\n\n");
+            reply.raw.end();
+          }
+        }
+        return;
+      }
       const response = await engine.execute(
         parsed,
         mergePolicy(config, parsed.polymind as Record<string, unknown> | undefined),
@@ -107,6 +224,7 @@ export async function buildApp(inputConfig?: PolyMindConfig): Promise<AppComposi
       reply.header("x-polymind-trace-id", response.polymind?.traceId ?? "");
       return response;
     } catch (error) {
+      if (reply.sent) return;
       const normalized = toApiError(error);
       return reply.code(normalized.statusCode).send({
         error: {
@@ -118,6 +236,19 @@ export async function buildApp(inputConfig?: PolyMindConfig): Promise<AppComposi
     }
   });
   return { app, config, registry, repository, telemetry };
+}
+
+function requireLocalAdmin(
+  request: { ip: string },
+  reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }
+): unknown | undefined {
+  if (["127.0.0.1", "::1", "localhost"].includes(request.ip)) return undefined;
+  return reply.code(403).send({
+    error: {
+      message: "Provider administration is limited to local admin requests",
+      code: "local_admin_required"
+    }
+  });
 }
 
 function resolveSecret(secretRef?: string): string | undefined {

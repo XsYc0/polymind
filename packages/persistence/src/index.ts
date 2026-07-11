@@ -124,7 +124,81 @@ export class SqliteRepository implements PolyMindRepository {
         success integer not null,
         json text not null
       );
+      create table if not exists provider_runtime_state(
+        provider_id text primary key,
+        state text not null,
+        json text not null,
+        updated_at text not null
+      );
+      create table if not exists provider_config_audit(
+        id integer primary key autoincrement,
+        provider_id text not null,
+        action text not null,
+        json text not null,
+        created_at text not null
+      );
+      create table if not exists provider_health_history(
+        id integer primary key autoincrement,
+        provider_id text not null,
+        healthy integer not null,
+        latency_ms integer,
+        reason text,
+        json text not null,
+        created_at text not null
+      );
+      create table if not exists circuit_breaker_transitions(
+        id integer primary key autoincrement,
+        provider_id text not null,
+        from_state text,
+        to_state text not null,
+        reason text,
+        created_at text not null
+      );
+      create table if not exists model_performance_observations(
+        id integer primary key autoincrement,
+        provider_id text not null,
+        model_id text not null,
+        latency_ms integer,
+        first_token_latency_ms integer,
+        success integer not null,
+        json text not null,
+        created_at text not null
+      );
+      create table if not exists stream_metrics(
+        id integer primary key autoincrement,
+        trace_id text not null,
+        provider_id text,
+        model_id text,
+        chunk_count integer not null,
+        output_characters integer not null,
+        partial integer not null,
+        json text not null,
+        created_at text not null
+      );
+      create table if not exists fallback_events(
+        id integer primary key autoincrement,
+        trace_id text not null,
+        provider_id text,
+        model_id text,
+        reason text not null,
+        json text not null,
+        created_at text not null
+      );
+      create table if not exists integration_runtime_status(
+        integration_id text primary key,
+        state text not null,
+        json text not null,
+        updated_at text not null
+      );
+      create table if not exists provider_lifecycle_events(
+        id integer primary key autoincrement,
+        provider_id text not null,
+        event text not null,
+        json text not null,
+        created_at text not null
+      );
       insert or ignore into schema_migrations(version) values (1);
+      insert or ignore into schema_migrations(version) values (2);
     `);
   }
 }
