@@ -91,6 +91,33 @@ export const polymindConfigSchema = z.object({
           fallbackToNative: true,
           timeoutMs: 30_000,
           maxRouteDepth: 2
+        }),
+      ruflo: z
+        .object({
+          enabled: z.boolean().default(false),
+          mode: z.enum(["external", "cli"]).default("cli"),
+          endpoint: z.string().url().optional(),
+          command: z.string().default("npx ruflo@latest"),
+          timeoutMs: z.number().int().positive().default(60_000),
+          fallbackToNative: z.boolean().default(true),
+          maximumAgents: z.number().int().positive().max(16).default(4),
+          routingMode: z
+            .enum([
+              "native-only",
+              "ruflo-preferred-with-native-fallback",
+              "ruflo-only",
+              "automatic"
+            ])
+            .default("automatic")
+        })
+        .default({
+          enabled: false,
+          mode: "cli",
+          command: "npx ruflo@latest",
+          timeoutMs: 60_000,
+          fallbackToNative: true,
+          maximumAgents: 4,
+          routingMode: "automatic"
         })
     })
     .default({
@@ -102,6 +129,15 @@ export const polymindConfigSchema = z.object({
         fallbackToNative: true,
         timeoutMs: 30_000,
         maxRouteDepth: 2
+      },
+      ruflo: {
+        enabled: false,
+        mode: "cli",
+        command: "npx ruflo@latest",
+        timeoutMs: 60_000,
+        fallbackToNative: true,
+        maximumAgents: 4,
+        routingMode: "automatic"
       }
     }),
   providers: z.array(providerDefinitionSchema).default([]),

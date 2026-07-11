@@ -7,6 +7,8 @@ export default defineConfig({
       "@polymind/config": resolve(__dirname, "packages/config/src/index.ts"),
       "@polymind/contracts": resolve(__dirname, "packages/contracts/src/index.ts"),
       "@polymind/cloud-providers": resolve(__dirname, "integrations/cloud-providers/src/index.ts"),
+      "@polymind/cognitive-engine": resolve(__dirname, "packages/cognitive-engine/src/index.ts"),
+      "@polymind/context-engine": resolve(__dirname, "packages/context-engine/src/index.ts"),
       "@polymind/execution-engine": resolve(__dirname, "packages/execution-engine/src/index.ts"),
       "@polymind/gateway/app": resolve(__dirname, "apps/gateway/src/app.ts"),
       "@polymind/model-registry": resolve(__dirname, "packages/model-registry/src/index.ts"),
@@ -19,6 +21,7 @@ export default defineConfig({
       "@polymind/persistence": resolve(__dirname, "packages/persistence/src/index.ts"),
       "@polymind/provider-sdk": resolve(__dirname, "packages/provider-sdk/src/index.ts"),
       "@polymind/router": resolve(__dirname, "packages/router/src/index.ts"),
+      "@polymind/semantic-cache": resolve(__dirname, "packages/semantic-cache/src/index.ts"),
       "@polymind/telemetry": resolve(__dirname, "packages/telemetry/src/index.ts"),
       "@polymind/test-utils": resolve(__dirname, "packages/test-utils/src/index.ts")
     }

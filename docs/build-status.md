@@ -27,7 +27,17 @@ Completed in this continuation slice:
 Still not live-verified:
 
 - authenticated OpenAI, Anthropic, Gemini, DeepSeek, Ollama, or OmniRoute calls
+- authenticated Ruflo orchestration
 - GitHub Actions status, pending remote CI inspection after push
+
+Build Prompt 4 continuation adds:
+
+- OpenAPI JSON route and CLI export command
+- trace list, trace attempts/events, runtime metrics, cache, performance, and execution APIs
+- persisted execution plans, cache tables, health observations, model performance observations, and Ruflo run tables
+- cognitive task analyzer, DAG planner, direct/cascade/specialist/council modes, deterministic evaluation, confidence aggregation, budgets, context trimming, and cache contracts
+- optional Ruflo status/configuration boundary
+- deterministic Task 2 closure and cognitive system E2E coverage
 
 Task 1 implementation includes contracts, config, gateway, CLI, provider adapters, registry, router, execution engine, persistence, telemetry, tests, Docker files, and CI workflow.
 

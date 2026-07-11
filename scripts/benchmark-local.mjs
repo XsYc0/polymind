@@ -3,9 +3,20 @@ import { performance } from "node:perf_hooks";
 import { buildApp } from "../apps/gateway/dist/app.js";
 import { defaultConfig } from "../packages/config/dist/index.js";
 
-const totalRequests = Number(process.env.POLYMIND_BENCH_REQUESTS ?? "20");
+const totalRequests = Number(process.env.POLYMIND_BENCH_REQUESTS ?? "24");
 const concurrency = Number(process.env.POLYMIND_BENCH_CONCURRENCY ?? "4");
 const latencies = [];
+const scenarios = [
+  { name: "direct", path: "/v1/executions", mode: "direct" },
+  { name: "cascade", path: "/v1/executions", mode: "cascade" },
+  { name: "specialist", path: "/v1/executions", mode: "specialist" },
+  { name: "council", path: "/v1/executions", mode: "council" },
+  { name: "native-chat", path: "/v1/chat/completions", mode: "auto" },
+  { name: "ruflo-status", path: "/v1/integrations/ruflo/status", method: "GET" },
+  { name: "omniroute-status", path: "/v1/integrations/omniroute/status", method: "GET" },
+  { name: "cache-stats", path: "/v1/cache/stats", method: "GET" }
+];
+const scenarioCounts = Object.fromEntries(scenarios.map((scenario) => [scenario.name, 0]));
 let successfulRequests = 0;
 let failedRequests = 0;
 
@@ -22,13 +33,19 @@ await Promise.all(
     while (next < totalRequests) {
       next += 1;
       const requestStarted = performance.now();
+      const scenario = scenarios[(next - 1) % scenarios.length];
+      scenarioCounts[scenario.name] += 1;
       const response = await app.inject({
-        method: "POST",
-        url: "/v1/chat/completions",
-        payload: {
-          model: "polymind/auto",
-          messages: [{ role: "user", content: "benchmark smoke" }]
-        }
+        method: scenario.method ?? "POST",
+        url: scenario.path,
+        payload:
+          scenario.method === "GET"
+            ? undefined
+            : {
+                model: `polymind/${scenario.mode}`,
+                messages: [{ role: "user", content: `benchmark ${scenario.name}` }],
+                polymind: { mode: scenario.mode, explain: false }
+              }
       });
       latencies.push(performance.now() - requestStarted);
       if (response.statusCode === 200) successfulRequests += 1;
@@ -50,6 +67,10 @@ const summary = {
   p99LatencyMs: percentile(latencies, 0.99),
   firstTokenLatencyMs: null,
   fallbackCount: 0,
+  escalationCount: scenarioCounts.cascade,
+  cacheHitRate: 0,
+  validationPassRate: successfulRequests / totalRequests,
+  scenarioCounts,
   errorRate: Number((failedRequests / totalRequests).toFixed(4)),
   note: "Deterministic local smoke only; not a production performance claim."
 };

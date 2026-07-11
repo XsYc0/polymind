@@ -70,6 +70,9 @@ importers:
       "@polymind/cloud-providers":
         specifier: workspace:*
         version: link:../../integrations/cloud-providers
+      "@polymind/cognitive-engine":
+        specifier: workspace:*
+        version: link:../../packages/cognitive-engine
       "@polymind/config":
         specifier: workspace:*
         version: link:../../packages/config
@@ -153,6 +156,34 @@ importers:
         specifier: workspace:*
         version: link:../../packages/provider-sdk
 
+  packages/cognitive-engine:
+    dependencies:
+      "@polymind/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+      "@polymind/execution-engine":
+        specifier: workspace:*
+        version: link:../execution-engine
+      "@polymind/model-registry":
+        specifier: workspace:*
+        version: link:../model-registry
+      "@polymind/persistence":
+        specifier: workspace:*
+        version: link:../persistence
+      "@polymind/provider-sdk":
+        specifier: workspace:*
+        version: link:../provider-sdk
+      "@polymind/router":
+        specifier: workspace:*
+        version: link:../router
+      zod:
+        specifier: ^4.1.13
+        version: 4.4.3
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/config:
     dependencies:
       "@polymind/contracts":
@@ -164,6 +195,16 @@ importers:
       zod:
         specifier: ^4.1.13
         version: 4.4.3
+
+  packages/context-engine:
+    dependencies:
+      "@polymind/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/contracts:
     dependencies:
@@ -227,6 +268,16 @@ importers:
       "@polymind/telemetry":
         specifier: workspace:*
         version: link:../telemetry
+
+  packages/semantic-cache:
+    dependencies:
+      "@polymind/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/telemetry:
     dependencies:

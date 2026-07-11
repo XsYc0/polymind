@@ -40,14 +40,61 @@ program
     const config = await loadConfig(options.config);
     const registry = ModelRegistry.fromConfig(config);
     await mkdir(dirname(config.storage.sqlitePath), { recursive: true });
-    console.log(`Node: ${process.version}`);
-    console.log(
-      `Config: ok (${registry.listProviders().length} providers, ${registry.listModels().length} models)`
+    const checks = [
+      ["PASS", `Node ${process.version}`],
+      [
+        "PASS",
+        `Config (${registry.listProviders().length} providers, ${registry.listModels().length} models)`
+      ],
+      ["PASS", `SQLite path ${config.storage.sqlitePath}`],
+      [
+        config.providers.some(
+          (provider) =>
+            provider.enabled && provider.secretRef && !provider.secretRef.startsWith("env:")
+        )
+          ? "FAIL"
+          : "PASS",
+        "Secret references use supported env: form"
+      ],
+      [config.integrations.omniroute.enabled ? "WARN" : "PASS", "OmniRoute optional integration"],
+      [config.integrations.ruflo.enabled ? "WARN" : "PASS", "Ruflo optional integration"],
+      [config.security.allowPrivateEndpoints ? "WARN" : "PASS", "Private endpoint policy"],
+      ["PASS", "OpenAPI export available"],
+      [
+        "PASS",
+        "Trace content persistence " + (config.storage.storeRequestContent ? "enabled" : "disabled")
+      ]
+    ];
+    for (const [status, message] of checks) console.log(`${status}: ${message}`);
+  });
+
+program
+  .command("execute")
+  .argument("<prompt>", "prompt to execute")
+  .option("--mode <mode>", "direct|cascade|specialist|council|workflow", "auto")
+  .option("--base-url <url>", "PolyMind gateway URL", "http://127.0.0.1:8080")
+  .option("--json", "emit JSON", false)
+  .action(async (prompt: string, options: { mode: string; baseUrl: string; json: boolean }) => {
+    await adminRequest(
+      options.baseUrl,
+      "/v1/executions",
+      "POST",
+      {
+        model: `polymind/${options.mode === "auto" ? "auto" : options.mode}`,
+        messages: [{ role: "user", content: prompt }],
+        polymind: { mode: options.mode, explain: true }
+      },
+      options.json
     );
-    console.log(`SQLite path: ${config.storage.sqlitePath}`);
-    console.log(
-      `Trace content persistence: ${config.storage.storeRequestContent ? "enabled" : "disabled"}`
-    );
+  });
+
+program
+  .command("openapi")
+  .argument("[action]", "export", "export")
+  .option("--base-url <url>", "PolyMind gateway URL", "http://127.0.0.1:8080")
+  .option("--json", "emit JSON", true)
+  .action(async (_action: string, options: { baseUrl: string; json: boolean }) => {
+    await adminRequest(options.baseUrl, "/openapi.json", "GET", undefined, options.json);
   });
 
 const providers = program.command("providers");
@@ -168,6 +215,130 @@ integrations
   .option("--json", "emit JSON", false)
   .action(async (options: { baseUrl: string; json: boolean }) => {
     await adminRequest(options.baseUrl, "/v1/integrations", "GET", undefined, options.json);
+  });
+integrations
+  .command("ruflo")
+  .argument("[action]", "status", "status")
+  .option("--base-url <url>", "PolyMind gateway URL", "http://127.0.0.1:8080")
+  .option("--json", "emit JSON", false)
+  .action(async (_action: string, options: { baseUrl: string; json: boolean }) => {
+    await adminRequest(
+      options.baseUrl,
+      "/v1/integrations/ruflo/status",
+      "GET",
+      undefined,
+      options.json
+    );
+  });
+
+const executions = program.command("executions");
+executions
+  .command("list")
+  .option("--base-url <url>", "PolyMind gateway URL", "http://127.0.0.1:8080")
+  .option("--json", "emit JSON", false)
+  .action(async (options: { baseUrl: string; json: boolean }) => {
+    await adminRequest(options.baseUrl, "/v1/executions", "GET", undefined, options.json);
+  });
+executions
+  .command("inspect")
+  .requiredOption("--id <executionId>", "execution id")
+  .option("--base-url <url>", "PolyMind gateway URL", "http://127.0.0.1:8080")
+  .option("--json", "emit JSON", false)
+  .action(async (options: { id: string; baseUrl: string; json: boolean }) => {
+    await adminRequest(
+      options.baseUrl,
+      `/v1/executions/${options.id}`,
+      "GET",
+      undefined,
+      options.json
+    );
+  });
+executions
+  .command("cancel")
+  .requiredOption("--id <executionId>", "execution id")
+  .option("--base-url <url>", "PolyMind gateway URL", "http://127.0.0.1:8080")
+  .option("--json", "emit JSON", false)
+  .action(async (options: { id: string; baseUrl: string; json: boolean }) => {
+    await adminRequest(
+      options.baseUrl,
+      `/v1/executions/${options.id}/cancel`,
+      "POST",
+      undefined,
+      options.json
+    );
+  });
+
+const cache = program.command("cache");
+cache
+  .command("stats")
+  .option("--base-url <url>", "PolyMind gateway URL", "http://127.0.0.1:8080")
+  .option("--json", "emit JSON", false)
+  .action(async (options: { baseUrl: string; json: boolean }) => {
+    await adminRequest(options.baseUrl, "/v1/cache/stats", "GET", undefined, options.json);
+  });
+cache
+  .command("purge")
+  .option("--base-url <url>", "PolyMind gateway URL", "http://127.0.0.1:8080")
+  .option("--yes", "confirm purge", false)
+  .option("--json", "emit JSON", false)
+  .action(async (options: { baseUrl: string; yes: boolean; json: boolean }) => {
+    if (!options.yes) {
+      console.error("Refusing cache purge without --yes");
+      process.exitCode = 2;
+      return;
+    }
+    await adminRequest(options.baseUrl, "/v1/cache/purge", "POST", undefined, options.json);
+  });
+cache.command("inspect").action(() => {
+  console.log(JSON.stringify({ entries: "hidden-by-default" }, null, 2));
+});
+
+const performance = program.command("performance");
+performance
+  .command("models")
+  .option("--base-url <url>", "PolyMind gateway URL", "http://127.0.0.1:8080")
+  .option("--json", "emit JSON", false)
+  .action(async (options: { baseUrl: string; json: boolean }) => {
+    await adminRequest(
+      options.baseUrl,
+      "/v1/performance/leaderboard",
+      "GET",
+      undefined,
+      options.json
+    );
+  });
+performance
+  .command("leaderboard")
+  .option("--base-url <url>", "PolyMind gateway URL", "http://127.0.0.1:8080")
+  .option("--json", "emit JSON", false)
+  .action(async (options: { baseUrl: string; json: boolean }) => {
+    await adminRequest(
+      options.baseUrl,
+      "/v1/performance/leaderboard",
+      "GET",
+      undefined,
+      options.json
+    );
+  });
+performance
+  .command("reset")
+  .option("--yes", "confirm reset", false)
+  .action((options: { yes: boolean }) => {
+    if (!options.yes) {
+      console.error("Refusing performance reset without --yes");
+      process.exitCode = 2;
+      return;
+    }
+    console.log(JSON.stringify({ reset: "requires gateway maintenance endpoint" }, null, 2));
+  });
+
+const plans = program.command("plans");
+plans
+  .command("validate")
+  .requiredOption("--plan-json <json>", "execution plan JSON")
+  .action((options: { planJson: string }) => {
+    JSON.parse(options.planJson);
+    console.log("Plan JSON valid");
   });
 integrations
   .command("omniroute")

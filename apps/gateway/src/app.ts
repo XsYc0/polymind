@@ -15,6 +15,7 @@ import {
   GeminiProvider,
   OpenAIProvider
 } from "@polymind/cloud-providers";
+import { CognitiveEngine, type ExecutionPolicy } from "@polymind/cognitive-engine";
 import { ExecutionEngine } from "@polymind/execution-engine";
 import { ModelRegistry } from "@polymind/model-registry";
 import { MockProvider } from "@polymind/mock-provider";
@@ -56,6 +57,7 @@ export async function buildApp(inputConfig?: PolyMindConfig): Promise<AppComposi
   }
   const router = new RoutingEngine({ balancedWeights: config.routing.balancedWeights, telemetry });
   const engine = new ExecutionEngine(registry, router, providers, repository, telemetry);
+  const cognitiveEngine = new CognitiveEngine({ registry, executionEngine: engine, repository });
   const healthScheduler = new ProviderHealthScheduler(providers, 30_000);
   const app = Fastify({
     logger: {
@@ -78,14 +80,27 @@ export async function buildApp(inputConfig?: PolyMindConfig): Promise<AppComposi
     providers: providers.statuses(),
     scheduler: healthScheduler.status(),
     integrations: {
-      omniroute: omnirouteStatus(config)
+      omniroute: omnirouteStatus(config),
+      ruflo: rufloStatus(config)
     }
+  }));
+  app.get("/v1/runtime/metrics", async () => ({
+    traces: { count: (await repository.listTraces?.({ limit: 200 }))?.length ?? 0 },
+    cache: (await repository.cacheStats?.()) ?? {
+      entries: 0,
+      hits: 0,
+      misses: 0,
+      invalidations: 0
+    },
+    providers: providers.statuses(),
+    performance: await repository.modelPerformance?.()
   }));
   app.get("/v1/integrations", async () => ({
     object: "list",
-    data: [omnirouteStatus(config)]
+    data: [omnirouteStatus(config), rufloStatus(config)]
   }));
   app.get("/v1/integrations/omniroute/status", async () => omnirouteStatus(config));
+  app.get("/v1/integrations/ruflo/status", async () => rufloStatus(config));
   app.post("/v1/integrations/omniroute/health/check", async (request, reply) => {
     const denied = requireLocalAdmin(request, reply);
     if (denied) return denied;
@@ -129,7 +144,21 @@ export async function buildApp(inputConfig?: PolyMindConfig): Promise<AppComposi
     "/v1/providers/:providerId/health/history",
     async (request) => ({
       object: "list",
-      data: [providers.status(request.params.providerId)].filter((status) => status.health)
+      data:
+        (await repository.listHealthHistory?.(
+          request.params.providerId,
+          parseListQuery(request.query)
+        )) ?? [providers.status(request.params.providerId)].filter((status) => status.health),
+      pagination: pagination(request.query)
+    })
+  );
+  app.get<{ Params: { providerId: string } }>(
+    "/v1/providers/:providerId/performance",
+    async (request) => ({
+      object: "list",
+      data: ((await repository.modelPerformance?.()) ?? []).filter(
+        (item) => item.providerId === request.params.providerId
+      )
     })
   );
   app.post<{ Params: { providerId: string } }>(
@@ -138,7 +167,22 @@ export async function buildApp(inputConfig?: PolyMindConfig): Promise<AppComposi
       const denied = requireLocalAdmin(request, reply);
       if (denied) return denied;
       try {
-        return await providers.healthCheck(request.params.providerId);
+        const before = providers.status(request.params.providerId);
+        const health = await providers.healthCheck(request.params.providerId);
+        const after = providers.status(request.params.providerId);
+        await repository.saveHealthObservation?.({
+          providerId: request.params.providerId,
+          source: "active",
+          healthy: health.healthy,
+          latencyMs: health.latencyMs,
+          failureCategory: health.healthy ? undefined : "provider_unavailable",
+          circuitBefore: before.circuitBreaker,
+          circuitAfter: after.circuitBreaker,
+          cooldownUntil: after.cooldownUntil,
+          createdAt: new Date().toISOString(),
+          metadata: health
+        });
+        return health;
       } catch (error) {
         const normalized = toApiError(error);
         return reply
@@ -319,6 +363,29 @@ export async function buildApp(inputConfig?: PolyMindConfig): Promise<AppComposi
         .send({ error: { message: "Model not found", code: "model_not_found" } });
     return { id: model.id, object: "model", owned_by: model.providerId, polymind: model };
   });
+  app.get<{ Params: { modelId: string } }>("/v1/models/:modelId/performance", async (request) => ({
+    object: "list",
+    data: (await repository.modelPerformance?.(request.params.modelId)) ?? []
+  }));
+  app.get<{ Params: { modelId: string } }>(
+    "/v1/models/:modelId/performance/by-task",
+    async (request) => ({
+      object: "list",
+      data: (await repository.modelPerformance?.(request.params.modelId)) ?? [],
+      groupedBy: "taskType"
+    })
+  );
+  app.get("/v1/performance/leaderboard", async () => ({
+    object: "list",
+    data: ((await repository.modelPerformance?.()) ?? []).sort(
+      (a, b) => b.successRate - a.successRate || (a.p50LatencyMs ?? 0) - (b.p50LatencyMs ?? 0)
+    )
+  }));
+  app.get("/v1/traces", async (request) => ({
+    object: "list",
+    data: await repository.listTraces?.(parseListQuery(request.query)),
+    pagination: pagination(request.query)
+  }));
   app.get<{ Params: { traceId: string } }>("/v1/traces/:traceId", async (request, reply) => {
     const trace = await repository.getTrace(request.params.traceId);
     if (!trace)
@@ -327,6 +394,87 @@ export async function buildApp(inputConfig?: PolyMindConfig): Promise<AppComposi
         .send({ error: { message: "Trace not found", code: "trace_not_found" } });
     return trace;
   });
+  app.get<{ Params: { traceId: string } }>("/v1/traces/:traceId/attempts", async (request) => ({
+    object: "list",
+    data: await repository.listAttempts?.(request.params.traceId)
+  }));
+  app.get<{ Params: { traceId: string } }>("/v1/traces/:traceId/events", async (request) => ({
+    object: "list",
+    data: telemetry.events.filter((item) => item.traceId === request.params.traceId)
+  }));
+  app.get("/v1/cache/stats", async () => (await repository.cacheStats?.()) ?? {});
+  app.post("/v1/cache/purge", async (request, reply) => {
+    const denied = requireLocalAdmin(request, reply);
+    if (denied) return denied;
+    return { purged: (await repository.purgeCache?.()) ?? 0 };
+  });
+  app.get("/v1/executions", async (request) => ({
+    object: "list",
+    data: await repository.listExecutions?.(parseListQuery(request.query)),
+    pagination: pagination(request.query)
+  }));
+  app.post("/v1/executions", async (request, reply) => {
+    try {
+      const parsed = chatCompletionRequestSchema.parse(request.body);
+      const result = await cognitiveEngine.execute(parsed, parseExecutionPolicy(parsed.polymind), {
+        requestId: request.id,
+        timeoutMs: config.server.requestTimeoutMs,
+        storeRequestContent: config.storage.storeRequestContent
+      });
+      reply.header("x-polymind-execution-id", result.executionId);
+      return result;
+    } catch (error) {
+      const normalized = toApiError(error);
+      return reply
+        .code(normalized.statusCode)
+        .send({ error: { message: normalized.message, code: normalized.code } });
+    }
+  });
+  app.get<{ Params: { executionId: string } }>(
+    "/v1/executions/:executionId",
+    async (request, reply) => {
+      const execution = await repository.getExecution?.(request.params.executionId);
+      if (!execution)
+        return reply
+          .code(404)
+          .send({ error: { message: "Execution not found", code: "execution_not_found" } });
+      return execution;
+    }
+  );
+  app.get<{ Params: { executionId: string } }>(
+    "/v1/executions/:executionId/plan",
+    async (request) => ({
+      plan: (await repository.getExecution?.(request.params.executionId))?.plan
+    })
+  );
+  app.get<{ Params: { executionId: string } }>(
+    "/v1/executions/:executionId/nodes",
+    async (request) => ({
+      object: "list",
+      data:
+        (
+          (await repository.getExecution?.(request.params.executionId))?.plan as
+            { nodes?: unknown[] } | undefined
+        )?.nodes ?? []
+    })
+  );
+  app.get<{ Params: { executionId: string } }>(
+    "/v1/executions/:executionId/evaluations",
+    async (request) => ({
+      object: "list",
+      data:
+        ((await repository.getExecution?.(request.params.executionId))?.evaluations as unknown[]) ??
+        []
+    })
+  );
+  app.post<{ Params: { executionId: string } }>(
+    "/v1/executions/:executionId/cancel",
+    async (request) => ({
+      executionId: request.params.executionId,
+      cancelled: true
+    })
+  );
+  app.get("/openapi.json", async () => openApiDocument());
   app.get("/v1/config", async () => redactSecrets(config));
   app.post("/v1/chat/completions", async (request, reply) => {
     try {
@@ -385,6 +533,23 @@ export async function buildApp(inputConfig?: PolyMindConfig): Promise<AppComposi
         }
         return;
       }
+      if (parsed.model.startsWith("polymind/") || hasCognitivePolicy(parsed.polymind)) {
+        const result = await cognitiveEngine.execute(
+          parsed,
+          parseExecutionPolicy(parsed.polymind),
+          {
+            requestId: request.id,
+            timeoutMs: config.server.requestTimeoutMs,
+            storeRequestContent: config.storage.storeRequestContent
+          }
+        );
+        reply.header("x-polymind-execution-id", result.executionId);
+        reply.header(
+          "x-polymind-trace-id",
+          result.response.polymind?.traceId ?? result.executionId
+        );
+        return result.response;
+      }
       const response = await engine.execute(
         parsed,
         mergePolicy(config, parsed.polymind as Record<string, unknown> | undefined),
@@ -425,6 +590,204 @@ function omnirouteStatus(config: PolyMindConfig): Record<string, unknown> {
       dateReviewed: "2026-07-11",
       license: "repository license not vendored into PolyMind"
     }
+  };
+}
+
+function rufloStatus(config: PolyMindConfig): Record<string, unknown> {
+  return {
+    id: "ruflo",
+    enabled: config.integrations.ruflo.enabled,
+    mode: config.integrations.ruflo.mode,
+    endpoint: config.integrations.ruflo.endpoint,
+    command: config.integrations.ruflo.command,
+    routingMode: config.integrations.ruflo.routingMode,
+    fallbackToNative: config.integrations.ruflo.fallbackToNative,
+    maximumAgents: config.integrations.ruflo.maximumAgents,
+    reviewed: {
+      repositoryUrl: "https://github.com/ruflo/ruflo",
+      documentedInterface: "CLI/MCP external orchestration boundary",
+      dateReviewed: "2026-07-11",
+      invocation: "npx ruflo@latest or external endpoint when configured",
+      limitations: "PolyMind does not pass provider secrets and falls back natively when disabled."
+    }
+  };
+}
+
+function parseExecutionPolicy(value: unknown): Partial<ExecutionPolicy> {
+  const input = (value ?? {}) as Record<string, unknown>;
+  const modeMap: Record<string, ExecutionPolicy["mode"]> = {
+    auto: "auto",
+    direct: "direct",
+    cascade: "cascade",
+    specialist: "specialist",
+    council: "council",
+    workflow: "workflow",
+    local: "local-only",
+    "local-only": "local-only"
+  };
+  const mode = typeof input.mode === "string" ? modeMap[input.mode] : undefined;
+  const budgetPreset =
+    typeof input.budgetPreset === "string" &&
+    ["economy", "balanced", "quality", "local-only", "custom"].includes(input.budgetPreset)
+      ? (input.budgetPreset as ExecutionPolicy["budget"]["preset"])
+      : undefined;
+  const output: Partial<ExecutionPolicy> = {};
+  if (mode) output.mode = mode;
+  if (typeof input.cache === "boolean") output.cache = input.cache;
+  if (typeof input.explain === "boolean") output.explain = input.explain;
+  if (input.privacy === "local-only" || input.privacy === "private") output.privacy = input.privacy;
+  if (input.ruflo === "only") output.ruflo = "ruflo-only";
+  if (input.ruflo === "preferred") output.ruflo = "ruflo-preferred-with-native-fallback";
+  if (input.ruflo === "native-only") output.ruflo = "native-only";
+  if (budgetPreset) {
+    output.budget = {
+      preset: budgetPreset,
+      maximumWallClockMs:
+        typeof input.maximumLatencyMs === "number" ? input.maximumLatencyMs : 30_000,
+      maximumProviderCalls: 4,
+      maximumExecutionNodes: 12,
+      maximumParallelCalls: 2,
+      maximumCouncilParticipants: 3
+    };
+    if (typeof input.maximumCost === "number")
+      output.budget.maximumEstimatedCost = input.maximumCost;
+  }
+  return output;
+}
+
+function hasCognitivePolicy(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const input = value as Record<string, unknown>;
+  return Boolean(input.mode || input.budgetPreset || input.explain || input.ruflo || input.cache);
+}
+
+function parseListQuery(value: unknown): {
+  limit?: number;
+  offset?: number;
+  providerId?: string;
+  modelId?: string;
+  strategy?: string;
+  success?: boolean;
+  since?: string;
+  until?: string;
+} {
+  const query = (value ?? {}) as Record<string, unknown>;
+  const output: {
+    limit?: number;
+    offset?: number;
+    providerId?: string;
+    modelId?: string;
+    strategy?: string;
+    success?: boolean;
+    since?: string;
+    until?: string;
+  } = {};
+  const limit = numberQuery(query.limit);
+  const offset = numberQuery(query.offset);
+  const providerId = stringQuery(query.providerId);
+  const modelId = stringQuery(query.modelId);
+  const strategy = stringQuery(query.strategy);
+  const since = stringQuery(query.since);
+  const until = stringQuery(query.until);
+  if (limit !== undefined) output.limit = limit;
+  if (offset !== undefined) output.offset = offset;
+  if (providerId) output.providerId = providerId;
+  if (modelId) output.modelId = modelId;
+  if (strategy) output.strategy = strategy;
+  if (query.success === "true") output.success = true;
+  if (query.success === "false") output.success = false;
+  if (since) output.since = since;
+  if (until) output.until = until;
+  return output;
+}
+
+function pagination(value: unknown): Record<string, number> {
+  const query = parseListQuery(value);
+  return { limit: Math.max(1, Math.min(query.limit ?? 50, 200)), offset: query.offset ?? 0 };
+}
+
+function numberQuery(value: unknown): number | undefined {
+  const resolved = Array.isArray(value) ? value[0] : value;
+  const number = Number(resolved);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function stringQuery(value: unknown): string | undefined {
+  const resolved = Array.isArray(value) ? value[0] : value;
+  return typeof resolved === "string" ? resolved : undefined;
+}
+
+export function openApiDocument(): Record<string, unknown> {
+  const response = {
+    description: "JSON response",
+    content: { "application/json": { schema: { type: "object" } } }
+  };
+  const error = {
+    description: "Error envelope",
+    content: {
+      "application/json": {
+        schema: {
+          type: "object",
+          properties: { error: { type: "object" } }
+        }
+      }
+    }
+  };
+  return {
+    openapi: "3.1.0",
+    info: { title: "PolyMind API", version: "0.1.0" },
+    paths: Object.fromEntries(
+      [
+        ["GET", "/health"],
+        ["GET", "/ready"],
+        ["GET", "/version"],
+        ["POST", "/v1/chat/completions"],
+        ["GET", "/v1/runtime/status"],
+        ["GET", "/v1/runtime/metrics"],
+        ["GET", "/v1/providers"],
+        ["POST", "/v1/providers"],
+        ["GET", "/v1/providers/{providerId}"],
+        ["PATCH", "/v1/providers/{providerId}"],
+        ["DELETE", "/v1/providers/{providerId}"],
+        ["GET", "/v1/providers/{providerId}/health"],
+        ["GET", "/v1/providers/{providerId}/health/history"],
+        ["GET", "/v1/providers/{providerId}/performance"],
+        ["GET", "/v1/models"],
+        ["GET", "/v1/models/{modelId}"],
+        ["GET", "/v1/models/{modelId}/performance"],
+        ["GET", "/v1/traces"],
+        ["GET", "/v1/traces/{traceId}"],
+        ["GET", "/v1/traces/{traceId}/attempts"],
+        ["GET", "/v1/traces/{traceId}/events"],
+        ["POST", "/v1/executions"],
+        ["GET", "/v1/executions"],
+        ["GET", "/v1/executions/{executionId}"],
+        ["GET", "/v1/executions/{executionId}/plan"],
+        ["GET", "/v1/executions/{executionId}/nodes"],
+        ["GET", "/v1/executions/{executionId}/evaluations"],
+        ["POST", "/v1/executions/{executionId}/cancel"],
+        ["GET", "/v1/cache/stats"],
+        ["POST", "/v1/cache/purge"],
+        ["GET", "/v1/performance/leaderboard"],
+        ["GET", "/v1/integrations"],
+        ["GET", "/v1/integrations/omniroute/status"],
+        ["GET", "/v1/integrations/ruflo/status"],
+        ["GET", "/openapi.json"]
+      ].map(([method, path]) => [
+        path,
+        {
+          [(method ?? "GET").toLowerCase()]: {
+            responses: { "200": response, "400": error, "500": error },
+            "x-polymind": {
+              streaming:
+                path === "/v1/chat/completions"
+                  ? "OpenAI-compatible SSE when request.stream=true"
+                  : undefined
+            }
+          }
+        }
+      ])
+    )
   };
 }
 

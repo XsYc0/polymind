@@ -15,6 +15,8 @@ PolyMind is not a hosted AI service, not a credential broker, and not a browser 
 - Fastify API gateway with OpenAI-compatible `/v1/chat/completions`
 - Provider SDK with mock, Ollama, generic OpenAI-compatible, OpenAI, Anthropic, Gemini, and DeepSeek adapters
 - Model registry, policy filters, health-aware routing, fallback execution
+- Cognitive execution engine with direct, cascade, specialist, and council planning
+- Execution observability APIs, OpenAPI export, cache/performance endpoints, and optional Ruflo status boundary
 - SQLite trace persistence with prompt hashes by default
 - CLI for init, serve, doctor, provider/model listing, provider administration, integration status, maintenance commands, and config validation
 - Unit, integration, and e2e tests that require no paid API
@@ -87,6 +89,9 @@ Trace content retention defaults to disabled. PolyMind stores prompt hashes and 
 - `packages/model-registry`: provider/model registry and filters
 - `packages/router`: deterministic routing engine
 - `packages/execution-engine`: request execution and fallback
+- `packages/cognitive-engine`: task analysis, planning, evaluation, confidence, and budget coordination
+- `packages/context-engine`: node-specific context trimming and compression
+- `packages/semantic-cache`: exact/semantic cache contracts and deterministic embeddings
 - `packages/persistence`: in-memory and SQLite repositories
 - `integrations/*`: provider and upstream integration boundaries
 

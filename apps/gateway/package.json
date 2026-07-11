@@ -19,6 +19,7 @@
     "@polymind/config": "workspace:*",
     "@polymind/contracts": "workspace:*",
     "@polymind/cloud-providers": "workspace:*",
+    "@polymind/cognitive-engine": "workspace:*",
     "@polymind/execution-engine": "workspace:*",
     "@polymind/model-registry": "workspace:*",
     "@polymind/mock-provider": "workspace:*",
