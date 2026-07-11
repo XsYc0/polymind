@@ -13,14 +13,21 @@ Implemented in `build/02-providers-streaming`:
 - persistence migration tables for health, stream metrics, fallback, lifecycle, and integration state
 - deterministic tests for SSE streaming and provider manager circuit opening
 
-Not yet complete:
+Completed in this continuation slice:
 
-- full runtime provider CRUD persistence
-- live cloud-provider verification
-- full Anthropic/Gemini/DeepSeek official translation layers
-- background health scheduler and persisted health history writes
-- full optional OmniRoute delegation
-- benchmark script and complete E2E scenario
+- official OpenAI, Anthropic, Gemini, and DeepSeek direct HTTP adapters
+- shared cloud-provider HTTP/SSE transport
+- runtime provider CRUD persistence overlay with audit records
+- provider CLI administration commands
+- background health scheduler and closed/open/half-open circuit transitions
+- optional external OmniRoute delegation with native fallback modes and loop-prevention headers
+- deterministic local benchmark smoke script
+- fake-server adapter tests and provider CRUD persistence tests
+
+Still not live-verified:
+
+- authenticated OpenAI, Anthropic, Gemini, DeepSeek, Ollama, or OmniRoute calls
+- GitHub Actions status, pending remote CI inspection after push
 
 Task 1 implementation includes contracts, config, gateway, CLI, provider adapters, registry, router, execution engine, persistence, telemetry, tests, Docker files, and CI workflow.
 

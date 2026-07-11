@@ -13,10 +13,10 @@ PolyMind is not a hosted AI service, not a credential broker, and not a browser 
 ## Current Capabilities
 
 - Fastify API gateway with OpenAI-compatible `/v1/chat/completions`
-- Provider SDK with mock, Ollama, and generic OpenAI-compatible adapters
+- Provider SDK with mock, Ollama, generic OpenAI-compatible, OpenAI, Anthropic, Gemini, and DeepSeek adapters
 - Model registry, policy filters, health-aware routing, fallback execution
 - SQLite trace persistence with prompt hashes by default
-- CLI for init, serve, doctor, provider/model listing, and config validation
+- CLI for init, serve, doctor, provider/model listing, provider administration, integration status, maintenance commands, and config validation
 - Unit, integration, and e2e tests that require no paid API
 
 ## Architecture
@@ -31,6 +31,8 @@ flowchart LR
   Providers --> Mock[Mock Provider]
   Providers --> Ollama[Ollama]
   Providers --> OAI[OpenAI-compatible]
+  Providers --> Cloud[OpenAI Anthropic Gemini DeepSeek]
+  Gateway --> OmniRoute[Optional OmniRoute HTTP Delegation]
   Engine --> Store[(SQLite)]
   Engine --> Telemetry[Local Telemetry Events]
 ```
@@ -98,6 +100,7 @@ pnpm test
 pnpm build
 pnpm ci
 pnpm doctor
+pnpm benchmark:local
 ```
 
 ## Docker
@@ -111,11 +114,11 @@ The default Compose stack uses the mock provider and a persistent local volume. 
 
 ## Roadmap
 
-Future build tasks can add richer policy history, multi-agent execution, dashboard UI, optional OmniRoute/Ruflo adapters, OpenTelemetry export, and advanced streaming.
+Future build tasks can add richer policy history, multi-agent execution, dashboard UI, OpenTelemetry export, and advanced planning/execution graphs.
 
 ## Integration Status
 
-OmniRoute and Ruflo are documented as optional future integration boundaries. Task 1 does not copy code or make fabricated API calls.
+OmniRoute is supported as an optional external OpenAI-compatible HTTP delegation target. Ruflo remains documented as a future integration boundary. PolyMind does not copy upstream integration code or automate consumer AI websites.
 
 ## License
 
